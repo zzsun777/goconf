@@ -18,18 +18,24 @@ func init() {
 }
 
 type TestConfig struct {
-	ID     int            `goconf:"core:id"`
-	Col    string         `goconf:"core:col"`
+	ID     int            `goconf:"id"`
+	Col    string         `goconf:"col"`
 	Ignore int            `goconf:"-"`
-	Arr    []string       `goconf:"core:arr:,"`
-	Arr1   []int          `goconf:"core:arr1:,"`
-	Test   time.Duration  `goconf:"core:t_1:time"`
-	Buf    int            `goconf:"core:buf:memory"`
-	M      map[int]string `goconf:"core:map:,"`
+	Arr    []string       `goconf:"core.arr:,"`
+	Arr1   []int          `goconf:"core.arr1:,"`
+	Test   time.Duration  `goconf:"core.t_1:time"`
+	Buf    int            `goconf:"core.buf:memory"`
+	M      map[int]string `goconf:"core.map:,"`
 }
 
 func TestSection(t *testing.T) {
-	section := "core"
+	section := ""
+	def := conf.Get(section)
+	if def == nil {
+		t.Errorf("not found section:\"%s\"", section)
+		t.FailNow()
+	}
+	section = "core"
 	core := conf.Get(section)
 	if core == nil {
 		t.Errorf("not found section:\"%s\"", section)
@@ -48,8 +54,8 @@ func TestSection(t *testing.T) {
 		t.FailNow()
 	}
 	key := "id"
-	if id, err := core.Int(key); err != nil {
-		t.Errorf("core.Int(\"%s\") failed (%s)", key, err.Error())
+	if id, err := def.Int(key); err != nil {
+		t.Errorf("Int(\"%s\") failed (%s)", key, err.Error())
 		t.FailNow()
 	} else {
 		if id != 1 {
@@ -58,8 +64,8 @@ func TestSection(t *testing.T) {
 		}
 	}
 	key = "col"
-	if col, err := core.String(key); err != nil {
-		t.Errorf("core.String(\"%s\") failed (%s)", key, err.Error())
+	if col, err := def.String(key); err != nil {
+		t.Errorf("String(\"%s\") failed (%s)", key, err.Error())
 		t.FailNow()
 	} else {
 		if col != "goconf" {

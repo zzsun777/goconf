@@ -2,13 +2,12 @@
 # ignore lines
 # ignore lines
 
-[core]
 # id
 id 1
 
 col goconf
 
-
+[core]
 # 123123
 f 1.23
 

@@ -16,7 +16,7 @@ const (
 	// formatter
 	CRLF     = '\n'
 	Comment  = "#"
-	Spliter  = " "
+	Spliter  = ""
 	SectionS = "["
 	SectionE = "]"
 	// memory unit
@@ -50,6 +50,10 @@ func New() *Config {
 	return &Config{Comment: Comment, Spliter: Spliter, data: map[string]*Section{}}
 }
 
+const (
+	_defsection = "_def_"
+)
+
 // ParseReader parse config file by a io.Reader.
 func (c *Config) ParseReader(reader io.Reader) error {
 	var (
@@ -63,6 +67,10 @@ func (c *Config) ParseReader(reader io.Reader) error {
 		section  *Section
 		rd       = bufio.NewReader(reader)
 	)
+	section = &Section{data: map[string]string{}, dataComments: map[string][]string{}, comments: comments, Comment: c.Comment, Name: _defsection}
+	c.data[_defsection] = section
+	c.dataOrder = append(c.dataOrder, _defsection)
+
 	for {
 		line++
 		row, err = rd.ReadString(CRLF)
@@ -84,7 +92,7 @@ func (c *Config) ParseReader(reader io.Reader) error {
 			if !strings.HasSuffix(row, SectionE) {
 				return errors.New(fmt.Sprintf("no end section: %s at :%d", SectionE, line))
 			}
-			sectionStr := row[1 : len(row)-1]
+			sectionStr := strings.ToLower(row[1 : len(row)-1])
 			// store the section
 			s, ok := c.data[sectionStr]
 			if !ok {
@@ -99,10 +107,17 @@ func (c *Config) ParseReader(reader io.Reader) error {
 			continue
 		}
 		// get the spliter index
-		idx = strings.Index(row, c.Spliter)
+		if len(c.Spliter) == 0 {
+			idx = strings.Index(row, " ")
+			if idx <= 0 {
+				idx = strings.Index(row, "=")
+			}
+		} else {
+			idx = strings.Index(row, c.Spliter)
+		}
 		if idx > 0 {
 			// get the key and value
-			key = strings.TrimSpace(row[:idx])
+			key = strings.ToLower(strings.TrimSpace(row[:idx]))
 			if len(row) > idx {
 				value = strings.TrimSpace(row[idx+1:])
 			}
@@ -142,7 +157,18 @@ func (c *Config) Parse(file string) error {
 
 // Get get a config section by key.
 func (c *Config) Get(section string) *Section {
+	if section == "" {
+		section = _defsection
+	}
 	s, _ := c.data[section]
+	return s
+}
+
+func (c *Config) GetDef() *Section {
+	s, ok := c.data[_defsection]
+	if !ok {
+		s = c.Add(_defsection, "")
+	}
 	return s
 }
 
@@ -214,8 +240,10 @@ func (c *Config) saveFile(file string) error {
 			}
 		}
 		// section
-		if _, err := f.WriteString(fmt.Sprintf("[%s]%c", section, CRLF)); err != nil {
-			return err
+		if section != _defsection {
+			if _, err := f.WriteString(fmt.Sprintf("[%s]%c", section, CRLF)); err != nil {
+				return err
+			}
 		}
 		// key-values
 		for _, k := range data.dataOrder {
@@ -227,7 +255,11 @@ func (c *Config) saveFile(file string) error {
 				}
 			}
 			// key-value
-			if _, err := f.WriteString(fmt.Sprintf("%s%s%s%c", k, c.Spliter, v, CRLF)); err != nil {
+			s := "="
+			if c.Spliter != "" {
+				s = c.Spliter
+			}
+			if _, err := f.WriteString(fmt.Sprintf("%s%s%s%c", k, s, v, CRLF)); err != nil {
 				return err
 			}
 		}
@@ -527,12 +559,17 @@ func (c *Config) Unmarshal(v interface{}) error {
 		if tag == "-" || tag == "" || tag == "omitempty" {
 			continue
 		}
-		tagArr := strings.SplitN(tag, ":", 3)
-		if len(tagArr) < 2 {
+		section := _defsection
+		idx := strings.IndexByte(tag, '.')
+		if idx >= 0 {
+			section = strings.ToLower(tag[:idx])
+			tag = tag[idx+1:]
+		}
+		tagArr := strings.SplitN(tag, ":", 2)
+		if len(tagArr) < 1 {
 			return errors.New(fmt.Sprintf("error tag: %s, must be section:field:delim(optional)", tag))
 		}
-		section := tagArr[0]
-		key := tagArr[1]
+		key := strings.ToLower(tagArr[0])
 		s := c.Get(section)
 		if s == nil {
 			// no config section
@@ -561,8 +598,8 @@ func (c *Config) Unmarshal(v interface{}) error {
 				vf.SetFloat(tmp)
 			}
 		case reflect.Int:
-			if len(tagArr) == 3 {
-				format := tagArr[2]
+			if len(tagArr) == 2 {
+				format := tagArr[1]
 				// parse memory size
 				if format == "memory" {
 					if tmp, err := parseMemory(value); err != nil {
@@ -599,8 +636,8 @@ func (c *Config) Unmarshal(v interface{}) error {
 				vf.SetInt(tmp)
 			}
 		case reflect.Int64:
-			if len(tagArr) == 3 {
-				format := tagArr[2]
+			if len(tagArr) == 2 {
+				format := tagArr[1]
 				// parse time
 				if format == "time" {
 					if tmp, err := parseTime(value); err != nil {
@@ -650,8 +687,8 @@ func (c *Config) Unmarshal(v interface{}) error {
 			}
 		case reflect.Slice:
 			delim := ","
-			if len(tagArr) > 2 {
-				delim = tagArr[2]
+			if len(tagArr) > 1 {
+				delim = tagArr[1]
 			}
 			strs := strings.Split(value, delim)
 			sli := reflect.MakeSlice(tf.Type, 0, len(strs))
@@ -665,8 +702,8 @@ func (c *Config) Unmarshal(v interface{}) error {
 			vf.Set(sli)
 		case reflect.Map:
 			delim := ","
-			if len(tagArr) > 2 {
-				delim = tagArr[2]
+			if len(tagArr) > 1 {
+				delim = tagArr[1]
 			}
 			strs := strings.Split(value, delim)
 			m := reflect.MakeMap(tf.Type)
